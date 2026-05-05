@@ -1268,13 +1268,6 @@ std::optional<PbftPeriod> DbStorage::getProposalPeriodForDagLevel(uint64_t level
   return value;
 }
 
-std::optional<PbftPeriod> DbStorage::getNextProposalPeriodForDagLevel(uint64_t level) {
-  // Seek to level+1 to skip any exact-match entry at `level`.
-  // This recovers the proposal period that was in effect before a later
-  // finalization inserted an entry at exactly `level`.
-  return getProposalPeriodForDagLevel(level + 1);
-}
-
 void DbStorage::saveProposalPeriodDagLevelsMap(uint64_t level, PbftPeriod period) {
   insert(Columns::proposal_period_levels_map, toSlice(level), toSlice(period));
 }

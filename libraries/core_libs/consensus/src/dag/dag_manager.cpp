@@ -502,7 +502,7 @@ void DagManager::recoverDag() {
         // been overwritten by a later finalization (anchor_level + kMaxLevelsPerPeriod collision).
         // Retry with the next map entry which was the original propose_period when the block was created.
         if (!verified) {
-          auto fallback_period = db_->getNextProposalPeriodForDagLevel(blk->getLevel());
+          auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
           if (fallback_period.has_value() && *fallback_period != *propose_period) {
             LOG(log_nf_) << "DAG block " << blk->getHash() << " VRF failed with propose_period " << *propose_period
                          << ", retrying with fallback period " << *fallback_period;
@@ -667,7 +667,7 @@ std::pair<DagManager::VerifyBlockReturnType, SharedTransactions> DagManager::ver
   // been overwritten by a later finalization (anchor_level + kMaxLevelsPerPeriod collision).
   // Retry with the next map entry which was the original propose_period when the block was created.
   if (!vdf_verified) {
-    auto fallback_period = db_->getNextProposalPeriodForDagLevel(blk->getLevel());
+    auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
     if (fallback_period.has_value() && *fallback_period != *propose_period) {
       LOG(log_nf_) << "DAG block " << block_hash << " VRF failed with propose_period " << *propose_period
                    << ", retrying with fallback period " << *fallback_period;

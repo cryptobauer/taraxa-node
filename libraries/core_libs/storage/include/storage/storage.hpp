@@ -373,10 +373,6 @@ class DbStorage : public std::enable_shared_from_this<DbStorage> {
 
   // DPOS level to proposal period map
   std::optional<uint64_t> getProposalPeriodForDagLevel(uint64_t level);
-  // Returns the proposal period by seeking past `level` (i.e. Seek(level+1)).
-  // Used as a fallback when a finalization inserted a map entry at exactly `level`,
-  // overriding the period that was valid when a DAG block at that level was created.
-  std::optional<uint64_t> getNextProposalPeriodForDagLevel(uint64_t level);
   void saveProposalPeriodDagLevelsMap(uint64_t level, PbftPeriod period);
   void addProposalPeriodDagLevelsMapToBatch(uint64_t level, PbftPeriod period, Batch& write_batch);
 

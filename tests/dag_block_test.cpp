@@ -238,7 +238,7 @@ TEST_F(DagBlockMgrTest, verify_block_uses_fallback_period_for_transaction_lookup
   db->saveProposalPeriodDagLevelsMap(level, current_period);
   db->saveProposalPeriodDagLevelsMap(level + 1, fallback_period);
   ASSERT_EQ(*db->getProposalPeriodForDagLevel(level), current_period);
-  ASSERT_EQ(*db->getNextProposalPeriodForDagLevel(level), fallback_period);
+  ASSERT_EQ(*db->getProposalPeriodForDagLevel(level + 1), fallback_period);
 
   auto dag_genesis = node->getConfig().genesis.dag_genesis_block.getHash();
   SortitionConfig vdf_config(node->getConfig().genesis.sortition);
