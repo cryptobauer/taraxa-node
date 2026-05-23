@@ -246,10 +246,6 @@ class DagManager : public std::enable_shared_from_this<DagManager> {
   bool validateBlockNotExpired(const std::shared_ptr<DagBlock> &dag_block,
                                std::unordered_map<blk_hash_t, std::shared_ptr<DagBlock>> &expired_dag_blocks_to_remove);
   void handleExpiredDagBlocksTransactions(const std::vector<trx_hash_t> &transactions_from_expired_dag_blocks) const;
-  bool verifyDagBlockVdf(const std::shared_ptr<DagBlock> &blk, PbftPeriod propose_period,
-                         std::string *error = nullptr) const;
-  std::optional<PbftPeriod> getVdfVerifiedProposalPeriod(const std::shared_ptr<DagBlock> &blk,
-                                                         PbftPeriod propose_period) const;
 
   std::pair<blk_hash_t, std::vector<blk_hash_t>> getFrontier() const;  // return pivot and tips
   void updateFrontier();

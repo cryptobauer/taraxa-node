@@ -64,60 +64,6 @@ std::shared_ptr<DagManager> DagManager::getShared() {
   }
 }
 
-bool DagManager::verifyDagBlockVdf(const std::shared_ptr<DagBlock> &blk, PbftPeriod propose_period,
-                                   std::string *error) const {
-  const auto pk = key_manager_->getVrfKey(propose_period, blk->getSender());
-  if (!pk) {
-    if (error) {
-      *error = "missing VRF key";
-    }
-    return false;
-  }
-
-  try {
-    uint64_t max_vote_count = 0;
-    const auto vote_count = final_chain_->dposEligibleVoteCount(propose_period, blk->getSender());
-    if (propose_period < kGenesis.state.hardforks.magnolia_hf.block_num) {
-      max_vote_count = final_chain_->dposEligibleTotalVoteCount(propose_period);
-    } else {
-      max_vote_count = kValidatorMaxVote;
-    }
-
-    blk->verifyVdf(sortition_params_manager_.getSortitionParams(propose_period), db_->getPeriodBlockHash(propose_period),
-                   *pk, vote_count, max_vote_count);
-    return true;
-  } catch (vdf_sortition::VdfSortition::InvalidVdfSortition const &e) {
-    if (error) {
-      *error = e.what();
-    }
-    return false;
-  }
-}
-
-std::optional<PbftPeriod> DagManager::getVdfVerifiedProposalPeriod(const std::shared_ptr<DagBlock> &blk,
-                                                                   PbftPeriod propose_period) const {
-  std::string error;
-  if (verifyDagBlockVdf(blk, propose_period, &error)) {
-    return propose_period;
-  }
-
-  // A finalized period can insert proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at the
-  // DAG block level. In that case Seek(level) sees the later period, while Seek(level + 1) returns the period that was
-  // used when the DAG block was created.
-  auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
-  if (fallback_period.has_value() && *fallback_period != propose_period) {
-    LOG(log_nf_) << "DAG block " << blk->getHash() << " VDF verification failed with propose_period "
-                 << propose_period << " reason " << error << ", retrying with fallback period " << *fallback_period;
-    if (verifyDagBlockVdf(blk, *fallback_period, &error)) {
-      return fallback_period;
-    }
-  }
-
-  LOG(log_er_) << "DAG block " << blk->getHash() << " with " << blk->getLevel()
-               << " level failed on VDF verification with pivot hash " << blk->getPivot() << " reason " << error;
-  return {};
-}
-
 std::pair<uint64_t, uint64_t> DagManager::getNumVerticesInDag() const {
   std::shared_lock lock(mutex_);
   return {db_->getDagBlocksCount(), total_dag_->getNumVertices()};
@@ -528,7 +474,44 @@ void DagManager::recoverDag() {
           break;
         }
 
-        if (!getVdfVerifiedProposalPeriod(blk, *propose_period)) {
+        auto verify_vdf_with_period = [&](PbftPeriod pp) -> bool {
+          const auto pk = key_manager_->getVrfKey(pp, blk->getSender());
+          if (!pk) {
+            return false;
+          }
+          try {
+            uint64_t max_vote_count = 0;
+            const auto vote_count = final_chain_->dposEligibleVoteCount(pp, blk->getSender());
+            if (pp < kGenesis.state.hardforks.magnolia_hf.block_num) {
+              max_vote_count = final_chain_->dposEligibleTotalVoteCount(pp);
+            } else {
+              max_vote_count = kValidatorMaxVote;
+            }
+            blk->verifyVdf(sortition_params_manager_.getSortitionParams(pp), db_->getPeriodBlockHash(pp), *pk,
+                           vote_count, max_vote_count);
+            return true;
+          } catch (vdf_sortition::VdfSortition::InvalidVdfSortition const &) {
+            return false;
+          }
+        };
+
+        bool vdf_verified = verify_vdf_with_period(*propose_period);
+
+        // A finalized period can insert proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at
+        // this DAG block level. If Seek(level) now sees that later period, retry Seek(level + 1), which was the period
+        // used by the observed mainnet block before the collision entry was inserted.
+        if (!vdf_verified) {
+          auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
+          if (fallback_period.has_value() && *fallback_period != *propose_period) {
+            LOG(log_nf_) << "DAG block " << blk->getHash() << " VDF failed with propose_period " << *propose_period
+                         << ", retrying with fallback period " << *fallback_period;
+            vdf_verified = verify_vdf_with_period(*fallback_period);
+          }
+        }
+
+        if (!vdf_verified) {
+          LOG(log_er_) << "DAG block " << blk->getHash() << " with " << blk->getLevel()
+                       << " level failed on VDF verification with pivot hash " << blk->getPivot();
           break;
         }
       }
@@ -654,13 +637,50 @@ std::pair<DagManager::VerifyBlockReturnType, SharedTransactions> DagManager::ver
     return {VerifyBlockReturnType::ExpiredBlock, {}};
   }
 
-  const auto map_propose_period = *propose_period;
-  auto verified_propose_period = getVdfVerifiedProposalPeriod(blk, map_propose_period);
-  if (!verified_propose_period) {
-    LOG(log_er_) << "period from map: " << map_propose_period << " current: " << pbft_chain_->getPbftChainSize();
+  auto verify_vdf_with_period = [&](PbftPeriod pp) -> bool {
+    const auto pk = key_manager_->getVrfKey(pp, blk->getSender());
+    if (!pk) {
+      return false;
+    }
+    try {
+      const auto period_hash = db_->getPeriodBlockHash(pp);
+      uint64_t max_vote_count = 0;
+      const auto vote_count = final_chain_->dposEligibleVoteCount(pp, blk->getSender());
+      if (pp < kGenesis.state.hardforks.magnolia_hf.block_num) {
+        max_vote_count = final_chain_->dposEligibleTotalVoteCount(pp);
+      } else {
+        max_vote_count = kValidatorMaxVote;
+      }
+      blk->verifyVdf(sortition_params_manager_.getSortitionParams(pp), period_hash, *pk, vote_count, max_vote_count);
+      return true;
+    } catch (vdf_sortition::VdfSortition::InvalidVdfSortition const &) {
+      return false;
+    }
+  };
+
+  bool vdf_verified = verify_vdf_with_period(*propose_period);
+
+  // A finalized period can insert proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at this
+  // DAG block level. If Seek(level) now sees that later period, retry Seek(level + 1), which was the period used by the
+  // observed mainnet block before the collision entry was inserted.
+  if (!vdf_verified) {
+    auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
+    if (fallback_period.has_value() && *fallback_period != *propose_period) {
+      LOG(log_nf_) << "DAG block " << block_hash << " VDF failed with propose_period " << *propose_period
+                   << ", retrying with fallback period " << *fallback_period;
+      if (verify_vdf_with_period(*fallback_period)) {
+        vdf_verified = true;
+        propose_period = fallback_period;
+      }
+    }
+  }
+
+  if (!vdf_verified) {
+    LOG(log_er_) << "DAG block " << block_hash << " with " << blk->getLevel()
+                 << " level failed on VDF verification with pivot hash " << blk->getPivot();
+    LOG(log_er_) << "period from map: " << *propose_period << " current: " << pbft_chain_->getPbftChainSize();
     return {VerifyBlockReturnType::FailedVdfVerification, {}};
   }
-  propose_period = verified_propose_period;
 
   // Verify transactions after finalizing the effective proposal period (primary or fallback)
   auto transactions = trx_mgr_->getTransactions(trx_hashes_to_query, *propose_period);
