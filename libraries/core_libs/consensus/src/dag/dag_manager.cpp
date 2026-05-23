@@ -497,9 +497,11 @@ void DagManager::recoverDag() {
 
         bool vdf_verified = verify_vdf_with_period(*propose_period);
 
-        // A finalized period can insert proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at
-        // this DAG block level. If Seek(level) now sees that later period, retry Seek(level + 1), which was the period
-        // used by the observed mainnet block before the collision entry was inserted.
+        // Mainnet stuck at PBFT period 25706950 because a finalized period inserted
+        // proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at this DAG block level. If
+        // Seek(level) now sees that later period, retry Seek(level + 1), which was the period used by the observed
+        // mainnet block before the collision entry was inserted:
+        // https://gist.github.com/bender-cryptobauer/d70b19a3767d5bcebf33be1d344da881
         if (!vdf_verified) {
           auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
           if (fallback_period.has_value() && *fallback_period != *propose_period) {
@@ -660,9 +662,11 @@ std::pair<DagManager::VerifyBlockReturnType, SharedTransactions> DagManager::ver
 
   bool vdf_verified = verify_vdf_with_period(*propose_period);
 
-  // A finalized period can insert proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at this
-  // DAG block level. If Seek(level) now sees that later period, retry Seek(level + 1), which was the period used by the
-  // observed mainnet block before the collision entry was inserted.
+  // Mainnet stuck at PBFT period 25706950 because a finalized period inserted
+  // proposal_period_levels_map[anchor_level + max_levels_per_period_] exactly at this DAG block level. If Seek(level)
+  // now sees that later period, retry Seek(level + 1), which was the period used by the observed mainnet block before
+  // the collision entry was inserted:
+  // https://gist.github.com/bender-cryptobauer/d70b19a3767d5bcebf33be1d344da881
   if (!vdf_verified) {
     auto fallback_period = db_->getProposalPeriodForDagLevel(blk->getLevel() + 1);
     if (fallback_period.has_value() && *fallback_period != *propose_period) {
