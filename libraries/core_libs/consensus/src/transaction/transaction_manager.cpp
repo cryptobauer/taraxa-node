@@ -396,9 +396,12 @@ std::pair<SharedTransactions, std::vector<uint64_t>> TransactionManager::packTrx
     try {
       estimate = estimateTransactionGas(trxs[i], proposal_period);
     } catch (const std::exception &e) {
-      LOG(log_er_) << "Transaction " << trxs[i]->getHash() << " gas estimation failed: " << e.what();
-      std::unique_lock transactions_lock(transactions_mutex_);
       auto trx = trxs[i];
+      const auto &receiver = trx->getReceiver();
+      LOG(log_er_) << "Transaction " << trx->getHash() << " from " << trx->getSender() << " to "
+                   << (receiver ? receiver->toString() : "contract creation") << " nonce " << trx->getNonce()
+                   << " gas " << trx->getGas() << " gas estimation failed: " << e.what();
+      std::unique_lock transactions_lock(transactions_mutex_);
       transactions_pool_.erase(trx);
       transactions_pool_.insert(std::move(trx), false, final_chain_->lastBlockNumber());
       continue;
