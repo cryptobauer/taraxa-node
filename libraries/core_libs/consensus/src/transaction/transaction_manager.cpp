@@ -393,18 +393,24 @@ std::pair<SharedTransactions, std::vector<uint64_t>> TransactionManager::packTrx
     }
 
     state_api::ExecutionResult estimate;
+    auto log_trx_estimation_error = [this](const std::shared_ptr<Transaction> &trx, const std::string &error) {
+      const auto &receiver = trx->getReceiver();
+      LOG(log_er_) << "Transaction " << trx->getHash() << " from " << trx->getSender() << " to "
+                   << (receiver ? receiver->toString() : "contract creation") << " nonce " << trx->getNonce()
+                   << " gas " << trx->getGas() << " gas estimation failed: " << error;
+    };
     try {
       estimate = estimateTransactionGas(trxs[i], proposal_period);
     } catch (const std::exception &e) {
       auto trx = trxs[i];
-      const auto &receiver = trx->getReceiver();
-      LOG(log_er_) << "Transaction " << trx->getHash() << " from " << trx->getSender() << " to "
-                   << (receiver ? receiver->toString() : "contract creation") << " nonce " << trx->getNonce()
-                   << " gas " << trx->getGas() << " gas estimation failed: " << e.what();
+      log_trx_estimation_error(trx, e.what());
       std::unique_lock transactions_lock(transactions_mutex_);
       transactions_pool_.erase(trx);
       transactions_pool_.insert(std::move(trx), false, final_chain_->lastBlockNumber());
       continue;
+    }
+    if (!estimate.code_err.empty() || !estimate.consensus_err.empty()) {
+      log_trx_estimation_error(trxs[i], "code_err: " + estimate.code_err + ", consensus_err: " + estimate.consensus_err);
     }
     if (estimate.gas_used < kMinTxGas) {
       LOG(log_er_) << "Transaction " << trxs[i]->getHash() << " has invalid estimation: " << estimate.gas_used;
