@@ -5,6 +5,7 @@
 #include <iostream>
 #include <vector>
 
+#include "common/encoding_solidity.hpp"
 #include "common/init.hpp"
 #include "common/types.hpp"
 #include "common/util.hpp"
@@ -509,6 +510,26 @@ TEST_F(DagBlockMgrTest, estimation_cache_test) {
     const auto& cached_estimation = node->getTransactionManager()->estimateTransactionGas(create_trx, 0).gas_used;
     EXPECT_EQ(estimation, cached_estimation);
   }
+}
+
+TEST_F(DagBlockMgrTest, pack_trxs_handles_malformed_slashing_proof) {
+  auto node_cfgs = make_node_cfgs(1, 1, 20);
+  node_cfgs.front().genesis.state.hardforks.magnolia_hf.block_num = 1;
+  node_cfgs.front().propose_dag_gas_limit = 500000;
+  const auto node = launch_nodes(node_cfgs).front();
+
+  const auto slashing_contract = addr_t("0x00000000000000000000000000000000000000EE");
+  auto input = util::EncodingSolidity::packFunctionCall("commitDoubleVotingProof(bytes,bytes)", bytes{1}, bytes{1});
+  auto trx = std::make_shared<Transaction>(1, 0, 1000000000, 200001, std::move(input), node->getSecretKey(),
+                                           slashing_contract, node->getConfig().genesis.chain_id);
+
+  auto insert_result = node->getTransactionManager()->insertTransaction(trx);
+  ASSERT_TRUE(insert_result.first) << insert_result.second;
+
+  EXPECT_NO_THROW({
+    const auto proposal_period = node->getFinalChain()->lastBlockNumber();
+    node->getTransactionManager()->packTrxs(proposal_period, node->getConfig().propose_dag_gas_limit);
+  });
 }
 
 }  // namespace taraxa::core_tests
