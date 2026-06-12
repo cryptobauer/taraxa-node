@@ -3,6 +3,7 @@
 #include <libdevcore/CommonIO.h>
 
 #include <algorithm>
+#include <exception>
 #include <tuple>
 #include <unordered_set>
 #include <utility>
@@ -724,7 +725,13 @@ std::pair<DagManager::VerifyBlockReturnType, SharedTransactions> DagManager::ver
                    << final_chain_->lastBlockNumber();
       return {VerifyBlockReturnType::BlockTooBig, {}};
     }
-    auto total_block_weight = trx_mgr_->estimateTransactions(all_block_trxs, *propose_period);
+    uint64_t total_block_weight = 0;
+    try {
+      total_block_weight = trx_mgr_->estimateTransactions(all_block_trxs, *propose_period);
+    } catch (const std::exception &e) {
+      LOG(log_er_) << "Failed estimating transactions for DAG block " << blk->getHash() << ": " << e.what();
+      return {VerifyBlockReturnType::IncorrectTransactionsEstimation, {}};
+    }
     if (total_block_weight != block_gas_estimation) {
       LOG(log_er_) << "Invalid block_gas_estimation. DAG block " << blk->getHash()
                    << " block_gas_estimation: " << block_gas_estimation << " total_block_weight " << total_block_weight
