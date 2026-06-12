@@ -79,10 +79,6 @@
           {
             "name": "SUMMARY",
             "verbosity": "INFO"
-          },
-          {
-            "name": "TRXMGR",
-            "verbosity": "ERROR"
           }
         ],
         "outputs": [
